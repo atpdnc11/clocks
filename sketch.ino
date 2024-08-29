@@ -1,65 +1,120 @@
-#include <Arduino.h>
-#include <U8g2lib.h> // u8g2 library for drawing on OLED display - needs to be installed in Arduino IDE first
-#include <Wire.h> // wire library for IIC communication with the OLED display
-#include <RTClib.h> // RTC library for real-time clock
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 
-//U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0); // set the OLED display to 128x64px, HW IIC, no rotation, used in WOKWI
-U8G2_SH1107_128X128_1_HW_I2C u8g2(U8G2_R0); // final display, 128x128px [page buffer, size = 128 bytes], HW IIC connection
+#define TFT_CS     10
+#define TFT_RST    9
+#define TFT_DC     8
+#define scl        4
+#define mosi       6
+#define ss         7
 
-RTC_DS3231 rtc; // create an RTC object
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 
-// IIC connection of the OLED display and Arduino UNO
-// +5V > +5V
-// GND > GND
-// SCL (serial clock) > A5 or SCL
-// SDA (serial data) > A4 or SDA
+int hours = 9;
+int minutes = 30;
+int seconds = 0;
+char *number[12]={"6","5","4","3","2","1","12","11","10","9","8","7"};
+const int SCREEN_WIDTH = 320;
+const int SCREEN_HEIGHT = 240;
+float radius = min(SCREEN_HEIGHT, SCREEN_WIDTH)/2-1;
 
-void setup(void) {
-  u8g2.begin();  // begin the u8g2 library
-  u8g2.setContrast(255); // set display contrast/brightness
+const int X_CENTER = SCREEN_WIDTH / 2;
+const int Y_CENTER = SCREEN_HEIGHT / 2;
 
-  if (!rtc.begin()) {
-    Serial.println("Couldn't find RTC");
-    while (1);
+double angle;
+int prevSeconds = -1;
+int prevMinutes = -1;
+int prevHours = -1;
+
+void drawClockHand(double angle, int length, uint16_t color) {
+  int x2 = X_CENTER + (sin(angle) * length);
+  int y2 = Y_CENTER - (cos(angle) * length);
+  tft.drawLine(X_CENTER, Y_CENTER, x2, y2, color);
+}
+
+void draw(void) {
+  if (seconds != prevSeconds) {
+    if (prevSeconds != -1) {
+      drawClockHand(prevSeconds * 6 * 0.0174533, radius - 1, ILI9341_BLACK);  // Erase previous second hand
+    }
+    drawClockHand(seconds * 6 * 0.0174533, radius - 1, ILI9341_RED);
+    prevSeconds = seconds;
   }
 
-  if (rtc.lostPower()) {
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // set RTC to the date & time this sketch was compiled
+  if (minutes != prevMinutes) {
+    if (prevMinutes != -1) {
+      drawClockHand(prevMinutes * 6 * 0.0174533, radius - 10, ILI9341_BLACK);  // Erase previous minute hand
+    }
+    drawClockHand(minutes * 6 * 0.0174533, radius - 10, ILI9341_GREEN);
+    prevMinutes = minutes;
+  }
+
+  if (hours != prevHours) {
+    if (prevHours != -1) {
+      drawClockHand(prevHours * 30 * 0.0174533 + (prevMinutes / 12.0 * 6 * 0.0174533), radius / 2, ILI9341_BLACK);  // Erase previous hour hand
+    }
+    drawClockHand(hours * 30 * 0.0174533 + (minutes / 12.0 * 6 * 0.0174533), radius / 2, ILI9341_BLUE);
+    prevHours = hours;
+  }
+}
+
+void setup(void) {
+  tft.begin();
+  tft.setRotation(3);  // Landscape mode
+  tft.fillScreen(ILI9341_BLACK);  // Clear screen
+  tft.drawCircle(X_CENTER, Y_CENTER, 1, ILI9341_WHITE);  // Draw center dot
+  
+  // Draw minute's ticks (60 lines)
+  for(int j=1; j<=60; j++){
+    angle = j * 6 * 0.0174533;
+    int x1 = X_CENTER + (sin(angle) * radius);
+    int y1 = Y_CENTER + (cos(angle) * radius);
+    int x2 = X_CENTER + (sin(angle) * radius);
+    int y2 = Y_CENTER + (cos(angle) * radius);
+    tft.drawLine(x1, y1, x2, y2, ILI9341_WHITE);
+  }
+  
+  // Draw hour's ticks (12 lines)
+  for(int j=0; j<12; j++){
+    angle = j * 30 * 0.0174533;
+    int x1 = X_CENTER + (sin(angle) * radius);
+    int y1 = Y_CENTER + (cos(angle) * radius);
+    int x2 = X_CENTER + (sin(angle) * (radius - 4));
+    int y2 = Y_CENTER + (cos(angle) * (radius - 4));
+    tft.drawLine(x1, y1, x2, y2, ILI9341_WHITE);
+    
+    // Draw hour digits (12 lines)
+    x2 = X_CENTER + (sin(angle) * (radius - 8));
+    y2 = Y_CENTER + (cos(angle) * (radius - 8));
+    tft.setTextSize(2);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setCursor(x2-6, y2-8);
+    tft.print(number[j]);
+ 
+ 
+  tft.setTextSize(2); 
+  tft.setTextColor(ILI9341_YELLOW);
+ tft.setCursor(X_CENTER - 30, Y_CENTER + 40);
+  tft.print("Arvind");
+ 
   }
 }
 
 void loop(void) {
-  DateTime now = rtc.now(); // get the current date and time
-
-  int hours = now.hour();
-  int minutes = now.minute();
-  int seconds = now.second();
-
-  // Calculate angles
-  float hourAngle = (hours % 12 + minutes / 60.0) * 30; // 360 / 12 = 30 degrees per hour
-  float minuteAngle = (minutes + seconds / 60.0) * 6; // 360 / 60 = 6 degrees per minute
-  float secondAngle = seconds * 6; // 360 / 60 = 6 degrees per second
-
-  // Calculate hand positions
-  int hourX = 64 + 30 * cos(radians(hourAngle - 90)); // length of hour hand is 30
-  int hourY = 64 + 30 * sin(radians(hourAngle - 90));
-  int minuteX = 64 + 45 * cos(radians(minuteAngle - 90)); // length of minute hand is 45
-  int minuteY = 64 + 45 * sin(radians(minuteAngle - 90));
-  int secondX = 64 + 55 * cos(radians(secondAngle - 90)); // length of second hand is 55
-  int secondY = 64 + 55 * sin(radians(secondAngle - 90));
-
-  u8g2.firstPage(); // select the first page of the display (page is 128x8px), since we are using the page drawing method of the u8g2 library
-  do {
-    // Draw clock face
-    u8g2.drawCircle(64, 64, 60, U8G2_DRAW_ALL); // draw the outer circle of the clock
-    u8g2.drawCircle(64, 64, 2, U8G2_DRAW_ALL); // draw the center circle of the clock
-
-    // Draw clock hands
-    u8g2.drawLine(64, 64, hourX, hourY); // draw hour hand
-    u8g2.drawLine(64, 64, minuteX, minuteY); // draw minute hand
-    u8g2.drawLine(64, 64, secondX, secondY); // draw second hand
-
-  } while (u8g2.nextPage()); // go over all the pages until the whole display is updated
-
-  delay(1000); // wait for 1 second before refreshing the display
+  seconds += 1;
+  if (seconds == 60) { 
+    seconds = 0; 
+    minutes += 1;
+  }
+  if (minutes == 60) { 
+    minutes = 0; 
+    hours += 1;
+  }
+  if (hours == 24) {
+    hours = 1;
+  }
+  
+  draw();
+  
+  delay(1000);
 }
